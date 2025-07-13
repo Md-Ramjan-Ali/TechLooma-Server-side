@@ -35,6 +35,24 @@ async function run() {
 
     // ------------------------------------payments collection---------------------------------------------
 
+    // payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      try {
+        const { amountInCents } = req.body;
+
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amountInCents,
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Stripe payment intent failed." });
+      }
+    });
+
     //post the payment data
     app.post("/payments", async (req, res) => {
       try {
@@ -45,7 +63,7 @@ async function run() {
         res.status(500).send({ error: "Failed to save payment." });
       }
     });
-    
+
     // ------------------------------------coupons collection----------------------------------------------
 
     // get all coupons
