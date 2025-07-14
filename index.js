@@ -87,11 +87,11 @@ async function run() {
           return res.status(404).send({ message: "Invalid coupon" });
         }
 
-        if (new Date(coupon.expiry) < today) {
+        if (new Date(coupon.expiryDate) < today) {
           return res.status(400).send({ message: "Coupon expired" });
         }
 
-        res.send({ discount: coupon.discount }); // discount in cents
+        res.send({ discount: Number(coupon.discount) }); // discount in cents
       } catch (error) {
         res.status(500).send({ message: "Error validating coupon" });
       }
@@ -274,6 +274,24 @@ async function run() {
     app.post("/products", async (req, res) => {
       try {
         const product = req.body;
+        const userEmail = req.user.email;
+
+        // Get user data
+        const user = await usersCollection.findOne({ email: userEmail });
+
+        // Count products added by the user
+        const existingProductCount = await productsCollection.countDocuments({
+          ownerEmail: userEmail,
+        });
+
+        // Check membership and limit
+        if (!user?.subscribed && existingProductCount >= 1) {
+          return res.status(403).send({
+            message:
+              "You can only add 1 product as a free user. Please subscribe to add more.",
+          });
+        }
+
         const result = await productsCollection.insertOne(product);
         res.status(201).send(result);
       } catch (error) {
