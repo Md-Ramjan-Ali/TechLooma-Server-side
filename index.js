@@ -218,6 +218,39 @@ async function run() {
 
     // ------------------------------------Products collection---------------------------------------------
 
+    // products page /accepted products→ with tag search + pagination
+    app.get("/products/accepted", async (req, res) => {
+      try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = 6;
+        const skip = (page - 1) * limit;
+        const search = req.query.search || "";
+
+        const query = {
+          status: "accepted",
+          tags: { $regex: search, $options: "i" },
+        };
+
+        const total = await productsCollection.countDocuments(query);
+
+        const products = await productsCollection
+          .find(query)
+          .skip(skip)
+          .limit(limit)
+          .sort({ create_At: -1 })
+          .toArray();
+
+        res.send({
+          total,
+          page,
+          totalPages: Math.ceil(total / limit),
+          products,
+        });
+      } catch (err) {
+        res.status(500).send({ message: "Failed to load accepted products" });
+      }
+    });
+
     // GET My Products
     app.get("/products", async (req, res) => {
       try {
@@ -233,6 +266,35 @@ async function run() {
       } catch (error) {
         console.error("Error fetching products:", error);
         res.status(500).send({ error: "Failed to fetch products" });
+      }
+    });
+
+    // Get all products sorted for moderator
+    app.get("/moderator/products", async (req, res) => {
+      try {
+        const pipeline = [
+          {
+            $addFields: {
+              sortOrder: {
+                $switch: {
+                  branches: [
+                    { case: { $eq: ["$status", "pending"] }, then: 0 },
+                    { case: { $eq: ["$status", "accepted"] }, then: 1 },
+                    { case: { $eq: ["$status", "rejected"] }, then: 2 },
+                  ],
+                  default: 3,
+                },
+              },
+            },
+          },
+          { $sort: { sortOrder: 1, create_At: -1 } }, // Sort pending first, then latest
+        ];
+
+        const result = await productsCollection.aggregate(pipeline).toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching moderator products:", error);
+        res.status(500).send({ error: "Internal Server Error" });
       }
     });
 
@@ -270,13 +332,51 @@ async function run() {
       }
     });
 
+    // PATCH: Update product status
+    app.patch("/products/:id/status", async (req, res) => {
+      const id = req.params.id;
+      const { status } = req.body;
+      const result = await productsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status } }
+      );
+      res.send(result);
+    });
+
+    // PATCH: Mark product as featured
+    app.patch("/products/:id/featured", async (req, res) => {
+      const id = req.params.id;
+      const result = await productsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { isFeatured: true } }
+      );
+      res.send(result);
+    });
+
+    // PATCH /products/:id/vote
+    app.patch("/products/:id/vote", async (req, res) => {
+      try {
+        const productId = req.params.id;
+        const result = await productsCollection.updateOne(
+          { _id: new ObjectId(productId) },
+          { $inc: { vote: 1 }, $set: { updated_At: new Date() } }
+        );
+        res.send(result);
+      } catch (error) {
+        console.error("Vote update failed:", error);
+        res.status(500).send({ message: "Vote failed" });
+      }
+    });
+
     // POST product - Add a new product
     app.post("/products", async (req, res) => {
       try {
         const product = req.body;
-        const userEmail = req.user.email;
+        // const {ownerEmail} = req.body
+        const userEmail = req.query.ownerEmail;
 
         // Get user data
+        // const user = await usersCollection.findOne({ email: ownerEmail });
         const user = await usersCollection.findOne({ email: userEmail });
 
         // Count products added by the user
