@@ -222,7 +222,7 @@ async function run() {
     app.get("/products/accepted", async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
-        const limit = 6;
+        const limit = 1;
         const skip = (page - 1) * limit;
         const search = req.query.search || "";
 
@@ -355,16 +355,30 @@ async function run() {
 
     // PATCH /products/:id/vote
     app.patch("/products/:id/vote", async (req, res) => {
+      const productId = req.params.id;
+      const { userEmail } = req.body;
+
       try {
-        const productId = req.params.id;
+        const product = await productsCollection.findOne({
+          _id: new ObjectId(productId),
+        });
+
+        if (product.votedUsers?.includes(userEmail)) {
+          return res.status(400).send({ message: "Already voted" });
+        }
+
         const result = await productsCollection.updateOne(
           { _id: new ObjectId(productId) },
-          { $inc: { vote: 1 }, $set: { updated_At: new Date() } }
+          {
+            $inc: { vote: 1 },
+            $push: { votedUsers: userEmail },
+          }
         );
+
         res.send(result);
-      } catch (error) {
-        console.error("Vote update failed:", error);
-        res.status(500).send({ message: "Vote failed" });
+      } catch (err) {
+        console.error("Vote error:", err);
+        res.status(500).send({ message: "Internal Server Error" });
       }
     });
 
