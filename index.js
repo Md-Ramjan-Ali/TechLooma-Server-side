@@ -32,6 +32,7 @@ async function run() {
     const usersCollection = db.collection("users");
     const couponsCollection = db.collection("coupons");
     const paymentsCollection = db.collection("payments");
+    const reviewsCollection = db.collection("reviews");
 
     // ------------------------------------payments collection---------------------------------------------
 
@@ -298,6 +299,20 @@ async function run() {
       }
     });
 
+    // Get all reported products maintain moderator
+    app.get("/products/reported", async (req, res) => {
+      try {
+        const reportedProducts = await productsCollection
+          .find({ isReported: true })
+          .sort({ reportCount: -1 })
+          .toArray();
+        res.send(reportedProducts);
+      } catch (error) {
+        console.error("Error fetching reported products:", error);
+        res.status(500).send({ message: "Failed to fetch reported products." });
+      }
+    });
+
     // get product by id
     app.get("/products/:id", async (req, res) => {
       const { id } = req.params;
@@ -382,15 +397,63 @@ async function run() {
       }
     });
 
+    // report the product
+    app.patch("/products/:id/report", async (req, res) => {
+      try {
+        const productId = req.params.id;
+        const { userEmail } = req.body;
+
+        if (!userEmail) {
+          return res.status(400).send({ message: "User email is required." });
+        }
+
+        // Check if user has already reported this product
+        const product = await productsCollection.findOne({
+          _id: new ObjectId(productId),
+        });
+
+        if (!product) {
+          return res.status(404).send({ message: "Product not found." });
+        }
+
+        const alreadyReported = product?.reports?.some(
+          (report) => report.reporterEmail === userEmail
+        );
+
+        if (alreadyReported) {
+          return res
+            .status(409)
+            .send({ message: "You have already reported this product." });
+        }
+
+        const reportData = {
+          reporterEmail: userEmail,
+          reported_At: new Date(),
+        };
+
+        const result = await productsCollection.updateOne(
+          { _id: new ObjectId(productId) },
+          {
+            $push: { reports: reportData },
+            $set: { isReported: true },
+            $inc: { reportCount: 1 },
+          }
+        );
+
+        res.send(result);
+      } catch (error) {
+        console.error("Report error:", error);
+        res.status(500).send({ message: "Failed to report the product." });
+      }
+    });
+
     // POST product - Add a new product
     app.post("/products", async (req, res) => {
       try {
         const product = req.body;
-        // const {ownerEmail} = req.body
         const userEmail = req.query.ownerEmail;
 
         // Get user data
-        // const user = await usersCollection.findOne({ email: ownerEmail });
         const user = await usersCollection.findOne({ email: userEmail });
 
         // Count products added by the user
@@ -426,6 +489,54 @@ async function run() {
         res.status(500).send({ error: "Failed to delete product" });
       }
     });
+
+    // ------------------------------------Review collection---------------------------------------------
+
+    // get review for single product
+    app.get("/reviews/:productId", async (req, res) => {
+      const { productId } = req.params;
+      const query = { productId: productId };
+
+      const result = await reviewsCollection
+        .find(query)
+        .sort({ created_At: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    // post review
+    app.post("/reviews", async (req, res) => {
+      const review = req.body;
+      const result = await reviewsCollection.insertOne(review);
+      res.send(result);
+    });
+
+    // ---------------------admin statius page data loading ------------------------------
+   app.get("/admin/stats", async (req, res) => {
+     try {
+       const totalUsers = await usersCollection.estimatedDocumentCount();
+       const totalReviews = await reviewsCollection.estimatedDocumentCount();
+       const totalProducts = await productsCollection.estimatedDocumentCount();
+       const acceptedCount = await productsCollection.countDocuments({
+         status: "accepted",
+       });
+       const pendingCount = await productsCollection.countDocuments({
+         status: "pending",
+       });
+
+       res.send({
+         totalUsers,
+         totalReviews,
+         totalProducts,
+         acceptedCount,
+         pendingCount,
+       });
+     } catch (err) {
+       res.status(500).send({ message: "Failed to fetch admin stats" });
+     }
+   });
+
+    
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
