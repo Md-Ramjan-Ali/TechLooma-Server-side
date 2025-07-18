@@ -219,6 +219,25 @@ async function run() {
 
     // ------------------------------------Products collection---------------------------------------------
 
+    // GET /products/featured
+    app.get("/products/featured", async (req, res) => {
+      try {
+        const featuredProducts = await productsCollection
+          .find({
+            isFeatured: true,
+          })
+          .sort({ created_At: -1 })
+          .limit(6)
+          .toArray();
+
+        res.send(featuredProducts);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch featured products" });
+      }
+    });
+
+    
+
     // products page /accepted products→ with tag search + pagination
     app.get("/products/accepted", async (req, res) => {
       try {
@@ -512,31 +531,29 @@ async function run() {
     });
 
     // ---------------------admin statius page data loading ------------------------------
-   app.get("/admin/stats", async (req, res) => {
-     try {
-       const totalUsers = await usersCollection.estimatedDocumentCount();
-       const totalReviews = await reviewsCollection.estimatedDocumentCount();
-       const totalProducts = await productsCollection.estimatedDocumentCount();
-       const acceptedCount = await productsCollection.countDocuments({
-         status: "accepted",
-       });
-       const pendingCount = await productsCollection.countDocuments({
-         status: "pending",
-       });
+    app.get("/admin/stats", async (req, res) => {
+      try {
+        const totalUsers = await usersCollection.estimatedDocumentCount();
+        const totalReviews = await reviewsCollection.estimatedDocumentCount();
+        const totalProducts = await productsCollection.estimatedDocumentCount();
+        const acceptedCount = await productsCollection.countDocuments({
+          status: "accepted",
+        });
+        const pendingCount = await productsCollection.countDocuments({
+          status: "pending",
+        });
 
-       res.send({
-         totalUsers,
-         totalReviews,
-         totalProducts,
-         acceptedCount,
-         pendingCount,
-       });
-     } catch (err) {
-       res.status(500).send({ message: "Failed to fetch admin stats" });
-     }
-   });
-
-    
+        res.send({
+          totalUsers,
+          totalReviews,
+          totalProducts,
+          acceptedCount,
+          pendingCount,
+        });
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch admin stats" });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
