@@ -76,6 +76,24 @@ async function run() {
       res.send(result);
     });
 
+    // GET /coupons/valid
+    app.get("/coupons/valid", async (req, res) => {
+      try {
+        const today = new Date();
+
+        const allCoupons = await couponsCollection.find().toArray();
+
+        const valid = allCoupons.filter((coupon) => {
+          const expiry = new Date(coupon.expiryDate);
+          return expiry >= today;
+        });
+
+        res.send(valid);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to filter valid coupons" });
+      }
+    });
+
     // coupon validation
     app.get("/validate-coupon/:code", async (req, res) => {
       const code = req.params.code;
