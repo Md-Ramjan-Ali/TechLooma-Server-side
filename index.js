@@ -236,7 +236,22 @@ async function run() {
       }
     });
 
-    
+    // GET /products/trending
+    app.get("/products/trending", async (req, res) => {
+      try {
+        const trending = await productsCollection
+          .find({ status: "accepted" })
+          .sort({
+            vote: -1,
+            createdAt: -1,
+          })
+          .limit(6)
+          .toArray();
+        res.send(trending);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch trending products" });
+      }
+    });
 
     // products page /accepted products→ with tag search + pagination
     app.get("/products/accepted", async (req, res) => {
