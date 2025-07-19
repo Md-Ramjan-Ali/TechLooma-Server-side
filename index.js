@@ -544,6 +544,21 @@ async function run() {
 
     // ------------------------------------Review collection---------------------------------------------
 
+    // GET all reviews
+    app.get("/reviews", async (req, res) => {
+      try {
+        const reviews = await reviewsCollection
+          .find()
+          .sort({
+            created_At: -1
+          }).limit(20)
+          .toArray();
+        res.send(reviews);
+      } catch (error) {
+        res.status(500).send({ error: "Failed to fetch reviews" });
+      }
+    });
+
     // get review for single product
     app.get("/reviews/:productId", async (req, res) => {
       const { productId } = req.params;
