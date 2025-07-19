@@ -275,7 +275,7 @@ async function run() {
     app.get("/products/accepted", async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
-        const limit = 1;
+        const limit = 6;
         const skip = (page - 1) * limit;
         const search = req.query.search || "";
 
@@ -550,8 +550,9 @@ async function run() {
         const reviews = await reviewsCollection
           .find()
           .sort({
-            created_At: -1
-          }).limit(20)
+            created_At: -1,
+          })
+          .limit(20)
           .toArray();
         res.send(reviews);
       } catch (error) {
