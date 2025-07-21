@@ -47,6 +47,7 @@ async function run() {
     const reviewsCollection = db.collection("reviews");
 
     // custom middlewares
+    // Token verify
     const verifyFBToken = async (req, res, next) => {
       const authHeader = req.headers?.authorization;
 
@@ -71,6 +72,7 @@ async function run() {
       }
     };
 
+    // Admin verify
     const verifyAdmin = async (req, res, next) => {
       try {
         const email = req.decoded.email;
@@ -85,20 +87,28 @@ async function run() {
       }
     };
 
+    // moderator verify
     const verifyModerator = async (req, res, next) => {
-      const email = req.decoded.email;
-      const query = { email };
-      const user = await usersCollection.findOne(query);
-      if (!user || user.role !== "moderator") {
-        return res.status(403).send({ message: "forbidden access" });
+      try {
+        const email = req.decoded.email;
+        const query = { email };
+        const user = await usersCollection.findOne(query);
+
+        if (!user || user.role !== "moderator") {
+          return res.status(403).send({ message: "forbidden access" });
+        }
+
+        next();
+      } catch (error) {
+        console.error("Moderator verification error:", error);
+        res.status(500).send({ message: "Internal Server Error" });
       }
-      next();
     };
 
     // ------------------------------------payments collection---------------------------------------------
 
     // payment intent
-    app.post("/create-payment-intent", async (req, res) => {
+    app.post("/create-payment-intent", verifyFBToken, async (req, res) => {
       try {
         const { amountInCents } = req.body;
 
@@ -116,7 +126,7 @@ async function run() {
     });
 
     //post the payment data
-    app.post("/payments", async (req, res) => {
+    app.post("/payments", verifyFBToken, async (req, res) => {
       try {
         const paymentData = req.body;
         const result = await paymentsCollection.insertOne(paymentData);
@@ -129,7 +139,7 @@ async function run() {
     // ------------------------------------coupons collection----------------------------------------------
 
     // get all coupons
-    app.get("/coupons", async (req, res) => {
+    app.get("/coupons", verifyFBToken, verifyAdmin, async (req, res) => {
       const result = await couponsCollection
         .find()
         .sort({ createDate: -1 })
@@ -143,12 +153,10 @@ async function run() {
         const today = new Date();
 
         const allCoupons = await couponsCollection.find().toArray();
-
         const valid = allCoupons.filter((coupon) => {
           const expiry = new Date(coupon.expiryDate);
           return expiry >= today;
         });
-
         res.send(valid);
       } catch (error) {
         res.status(500).send({ message: "Failed to filter valid coupons" });
@@ -156,7 +164,7 @@ async function run() {
     });
 
     // coupon validation
-    app.get("/validate-coupon/:code", async (req, res) => {
+    app.get("/validate-coupon/:code", verifyFBToken, async (req, res) => {
       const code = req.params.code;
       const today = new Date();
 
@@ -178,14 +186,14 @@ async function run() {
     });
 
     // CREATE Coupon
-    app.post("/coupons", async (req, res) => {
+    app.post("/coupons", verifyFBToken, verifyAdmin, async (req, res) => {
       const newCoupon = req.body;
       const result = await couponsCollection.insertOne(newCoupon);
       res.send(result);
     });
 
     // UPDATE a coupon
-    app.put("/coupons/:id", async (req, res) => {
+    app.put("/coupons/:id", verifyFBToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const updated = req.body;
       const result = await couponsCollection.updateOne(
@@ -196,7 +204,7 @@ async function run() {
     });
 
     // DELETE a coupon
-    app.delete("/coupons/:id", async (req, res) => {
+    app.delete("/coupons/:id", verifyFBToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const result = await couponsCollection.deleteOne({
         _id: new ObjectId(id),
@@ -217,7 +225,7 @@ async function run() {
     });
 
     // Get Single User Info
-    app.get("/users/:email", async (req, res) => {
+    app.get("/users/:email", verifyFBToken, async (req, res) => {
       try {
         const { email } = req.params;
         const user = await usersCollection.findOne({ email });
@@ -228,7 +236,7 @@ async function run() {
     });
 
     // GET: /users/role/:email and user this code custom hook useUserRole
-    app.get("/users/role/:email", async (req, res) => {
+    app.get("/users/role/:email", verifyFBToken, async (req, res) => {
       try {
         const email = req.params.email;
         const user = await usersCollection.findOne({ email });
@@ -245,25 +253,30 @@ async function run() {
     });
 
     // update role in user
-    app.patch("/users/role/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        const { role } = req.body;
-        const query = { _id: new ObjectId(id) };
-        const updateRole = {
-          $set: { role },
-        };
+    app.patch(
+      "/users/role/:id",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const id = req.params.id;
+          const { role } = req.body;
+          const query = { _id: new ObjectId(id) };
+          const updateRole = {
+            $set: { role },
+          };
 
-        const result = await usersCollection.updateOne(query, updateRole);
-        res.send(result);
-      } catch (err) {
-        console.error(err);
-        res.status(500).send({ error: "Failed to update role" });
+          const result = await usersCollection.updateOne(query, updateRole);
+          res.send(result);
+        } catch (err) {
+          console.error(err);
+          res.status(500).send({ error: "Failed to update role" });
+        }
       }
-    });
+    );
 
     // update subscribe
-    app.patch("/users/subscribe/:email", async (req, res) => {
+    app.patch("/users/subscribe/:email", verifyFBToken, async (req, res) => {
       const email = req.params.email;
       const result = await usersCollection.updateOne(
         { email },
@@ -366,7 +379,7 @@ async function run() {
     });
 
     // GET My Products
-    app.get("/products", async (req, res) => {
+    app.get("/products", verifyFBToken, async (req, res) => {
       try {
         const email = req.query.email;
         const query = { ownerEmail: email };
@@ -384,50 +397,62 @@ async function run() {
     });
 
     // Get all products sorted for moderator
-    app.get("/moderator/products", async (req, res) => {
-      try {
-        const pipeline = [
-          {
-            $addFields: {
-              sortOrder: {
-                $switch: {
-                  branches: [
-                    { case: { $eq: ["$status", "pending"] }, then: 0 },
-                    { case: { $eq: ["$status", "accepted"] }, then: 1 },
-                    { case: { $eq: ["$status", "rejected"] }, then: 2 },
-                  ],
-                  default: 3,
+    app.get(
+      "/moderator/products",
+      verifyFBToken,
+      verifyModerator,
+      async (req, res) => {
+        try {
+          const pipeline = [
+            {
+              $addFields: {
+                sortOrder: {
+                  $switch: {
+                    branches: [
+                      { case: { $eq: ["$status", "pending"] }, then: 0 },
+                      { case: { $eq: ["$status", "accepted"] }, then: 1 },
+                      { case: { $eq: ["$status", "rejected"] }, then: 2 },
+                    ],
+                    default: 3,
+                  },
                 },
               },
             },
-          },
-          { $sort: { sortOrder: 1, create_At: -1 } }, // Sort pending first, then latest
-        ];
+            { $sort: { sortOrder: 1, create_At: -1 } }, // Sort pending first, then latest
+          ];
 
-        const result = await productsCollection.aggregate(pipeline).toArray();
-        res.send(result);
-      } catch (error) {
-        console.error("Error fetching moderator products:", error);
-        res.status(500).send({ error: "Internal Server Error" });
+          const result = await productsCollection.aggregate(pipeline).toArray();
+          res.send(result);
+        } catch (error) {
+          console.error("Error fetching moderator products:", error);
+          res.status(500).send({ error: "Internal Server Error" });
+        }
       }
-    });
+    );
 
     // Get all reported products maintain moderator
-    app.get("/products/reported", async (req, res) => {
-      try {
-        const reportedProducts = await productsCollection
-          .find({ isReported: true })
-          .sort({ reportCount: -1 })
-          .toArray();
-        res.send(reportedProducts);
-      } catch (error) {
-        console.error("Error fetching reported products:", error);
-        res.status(500).send({ message: "Failed to fetch reported products." });
+    app.get(
+      "/products/reported",
+      verifyFBToken,
+      verifyModerator,
+      async (req, res) => {
+        try {
+          const reportedProducts = await productsCollection
+            .find({ isReported: true })
+            .sort({ reportCount: -1 })
+            .toArray();
+          res.send(reportedProducts);
+        } catch (error) {
+          console.error("Error fetching reported products:", error);
+          res
+            .status(500)
+            .send({ message: "Failed to fetch reported products." });
+        }
       }
-    });
+    );
 
     // get product by id
-    app.get("/products/:id", async (req, res) => {
+    app.get("/products/:id", verifyFBToken, async (req, res) => {
       const { id } = req.params;
       const query = { _id: new ObjectId(id) };
       const result = await productsCollection.findOne(query);
@@ -435,7 +460,7 @@ async function run() {
     });
 
     // PUT: Update a product by ID
-    app.put("/products/:id", async (req, res) => {
+    app.put("/products/:id", verifyFBToken, async (req, res) => {
       try {
         const { id } = req.params;
         const updatedProduct = req.body;
@@ -461,28 +486,38 @@ async function run() {
     });
 
     // PATCH: Update product status
-    app.patch("/products/:id/status", async (req, res) => {
-      const id = req.params.id;
-      const { status } = req.body;
-      const result = await productsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status } }
-      );
-      res.send(result);
-    });
+    app.patch(
+      "/products/:id/status",
+      verifyFBToken,
+      verifyModerator,
+      async (req, res) => {
+        const id = req.params.id;
+        const { status } = req.body;
+        const result = await productsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { status } }
+        );
+        res.send(result);
+      }
+    );
 
     // PATCH: Mark product as featured
-    app.patch("/products/:id/featured", async (req, res) => {
-      const id = req.params.id;
-      const result = await productsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { isFeatured: true } }
-      );
-      res.send(result);
-    });
+    app.patch(
+      "/products/:id/featured",
+      verifyFBToken,
+      verifyModerator,
+      async (req, res) => {
+        const id = req.params.id;
+        const result = await productsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { isFeatured: true } }
+        );
+        res.send(result);
+      }
+    );
 
     // PATCH /products/:id/vote
-    app.patch("/products/:id/vote", async (req, res) => {
+    app.patch("/products/:id/vote", verifyFBToken, async (req, res) => {
       const productId = req.params.id;
       const { userEmail } = req.body;
 
@@ -511,7 +546,7 @@ async function run() {
     });
 
     // report the product
-    app.patch("/products/:id/report", async (req, res) => {
+    app.patch("/products/:id/report", verifyFBToken, async (req, res) => {
       try {
         const productId = req.params.id;
         const { userEmail } = req.body;
@@ -561,7 +596,7 @@ async function run() {
     });
 
     // POST product - Add a new product
-    app.post("/products", async (req, res) => {
+    app.post("/products", verifyFBToken, async (req, res) => {
       try {
         const product = req.body;
         const userEmail = req.query.ownerEmail;
@@ -591,7 +626,7 @@ async function run() {
     });
 
     // DELETE Product by ID
-    app.delete("/products/:id", async (req, res) => {
+    app.delete("/products/:id", verifyFBToken, async (req, res) => {
       try {
         const id = req.params.id;
         const filter = { _id: new ObjectId(id) };
@@ -622,7 +657,7 @@ async function run() {
     });
 
     // get review for single product
-    app.get("/reviews/:productId", async (req, res) => {
+    app.get("/reviews/:productId", verifyFBToken, async (req, res) => {
       const { productId } = req.params;
       const query = { productId: productId };
 
@@ -634,7 +669,7 @@ async function run() {
     });
 
     // post review
-    app.post("/reviews", async (req, res) => {
+    app.post("/reviews", verifyFBToken, async (req, res) => {
       const review = req.body;
       const result = await reviewsCollection.insertOne(review);
       res.send(result);
