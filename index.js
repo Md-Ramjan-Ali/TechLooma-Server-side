@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const admin = require("firebase-admin");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 dotenv.config();
 const app = express();
@@ -10,6 +11,17 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+// Firebase init
+const decodedKey = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf8"
+);
+
+const serviceAccount = JSON.parse(decodedKey);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@brainbazzdatabase.ihuzu7m.mongodb.net/?retryWrites=true&w=majority&appName=BrainBazzDatabase`;
 
@@ -33,6 +45,55 @@ async function run() {
     const couponsCollection = db.collection("coupons");
     const paymentsCollection = db.collection("payments");
     const reviewsCollection = db.collection("reviews");
+
+    // custom middlewares
+    const verifyFBToken = async (req, res, next) => {
+      const authHeader = req.headers?.authorization;
+
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      const token = authHeader.split(" ")[1];
+      if (!token) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      // verify token
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+
+        next();
+      } catch (error) {
+        console.error("Token verification failed:", error);
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+    };
+
+    const verifyAdmin = async (req, res, next) => {
+      try {
+        const email = req.decoded.email;
+        const user = await usersCollection.findOne({ email });
+        if (!user || user.role !== "admin") {
+          return res.status(403).send({ message: "forbidden access" });
+        }
+        next();
+      } catch (error) {
+        console.error("Error in verifyAdmin:", error);
+        res.status(500).send({ message: "Internal server error" });
+      }
+    };
+
+    const verifyModerator = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== "moderator") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
     // ------------------------------------payments collection---------------------------------------------
 
@@ -145,7 +206,7 @@ async function run() {
     // ------------------------------------Users collection------------------------------------------------
 
     // get all users
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const result = await usersCollection.find().toArray();
         res.send(result);
@@ -580,7 +641,7 @@ async function run() {
     });
 
     // ---------------------admin statius page data loading ------------------------------
-    app.get("/admin/stats", async (req, res) => {
+    app.get("/admin/stats", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const totalUsers = await usersCollection.estimatedDocumentCount();
         const totalReviews = await reviewsCollection.estimatedDocumentCount();
